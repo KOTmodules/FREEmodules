@@ -26,33 +26,52 @@ class KOTaiwaifuMod(loader.Module):
             "oppai", "selfies", "uniform", "kamisato-ayaka"
         ]
         
-        try:
-            tags = args.split(",") if args else random.sample(allowed_tags, 2)
-            tags = [tag.strip() for tag in tags if tag.strip() in allowed_tags][:2]
+        attempts = 0
+        while attempts < 2:  # Максимум 2 попытки
+            try:
+                tags = args.split(",") if args else random.sample(allowed_tags, 2)
+                tags = [tag.strip() for tag in tags if tag.strip() in allowed_tags][:2]
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    "https://api.waifu.im/search",
-                    params={"included_tags": tags}
-                ) as resp:
-                    if resp.status != 200:
-                        return await utils.answer(message, "🚫 <b> Ошибка генерации, попробуйте что-то другое! </b> ")
-                    data = await resp.json()
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        "https://api.waifu.im/search",
+                        params={"included_tags": tags}
+                    ) as resp:
+                        if resp.status != 200:
+                            continue  # Повторяем запрос
+                        data = await resp.json()
 
-                image_url = data["images"][0]["url"]
-                async with session.get(image_url) as img_resp:
-                    img_data = await img_resp.read()
+                    image_url = data["images"][0]["url"]
+                    async with session.get(image_url) as img_resp:
+                        img_data = await img_resp.read()
 
-            await self._client.send_file(
-                message.peer_id,
-                BytesIO(img_data),
-                caption=f"<emoji document_id=5269260681269493579>😳</emoji><b> Ваша вайфу! </b> \n<b><emoji document_id=5305455843846666416>😀</emoji> Теги:</b> {', '.join(tags)}",
-                reply_to=message.id
-            )
-            await message.delete()
+                # Проверка на пустые данные
+                if not img_data:
+                    continue
 
-        except Exception as e:
-            await utils.answer(message, f"🚫 Ошибка: {str(e)}")
+                # Формируем файл с расширением
+                file = BytesIO(img_data)
+                file.name = "waifu.jpg"
+
+                # Отправка изображения
+                await self._client.send_file(
+                    message.peer_id,
+                    file,
+                    force_document=False,
+                    caption=(
+                        "<emoji document_id=5269260681269493579>😳</emoji><b> Ваша вайфу! </b>\n"
+                        f"<b><emoji document_id=5305455843846666416>😀</emoji> Теги:</b> {', '.join(tags)}"
+                    ),
+                    reply_to=message.id
+                )
+                await message.delete()
+                break  # Успешная отправка, выходим из цикла
+
+            except Exception:
+                attempts += 1
+                if attempts == 2:  # Не удалось после двух попыток
+                    await message.delete()  # Удаляем исходное сообщение
+                    return
 
     @loader.command(ru_doc="Показать доступные теги") 
     async def tagscmd(self, message: Message):
@@ -64,7 +83,8 @@ class KOTaiwaifuMod(loader.Module):
         ]
         await utils.answer(
             message,
-            f"<emoji document_id=5258380816144154399>😀</emoji><b> Доступные теги: </b> \n{', '.join(tags)}"
+            "<emoji document_id=5258380816144154399>😀</emoji><b> Доступные теги: </b>\n"
+            f"{', '.join(tags)}"
         )
 
-version = (1, 0, 1)
+version = (1, 5, 0)
