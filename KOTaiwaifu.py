@@ -1,90 +1,65 @@
 # meta developer: @kotcheat
-# scope: hikka_only
-# requires: aiohttp>=3.9.3
 
-from hikkatl.types import Message
-from .. import loader, utils
-from io import BytesIO
-import aiohttp
+import asyncio
+import functools
+import json
 import random
+from urllib.parse import quote_plus
+
+import requests
+from telethon.tl.types import Message
+
+from .. import loader, utils
+
+phrases = ["Kawaii!", "Daisuki!", "Sugoi!", "Hai!", "Arigato!", "Moe!", "Yoroshiku!", "Oishii!"]
+
+async def get_image_url(api_url: str) -> str:
+    try:
+        response = await utils.run_sync(requests.get, api_url)
+        response.raise_for_status()
+        data = response.json()
+        if 'url' in data:
+            return data['url']
+        elif 'images' in data and data['images']:
+            return data['images'][0]['url']
+        elif 'results' in data and data['results']:
+            return data['results'][0]['url']
+        else:
+            return "No image found."
+    except requests.exceptions.RequestException as e:
+        return f"Error: {e}"
+
+async def photo(self, args: str) -> str:
+    apis = [
+        f"https://api.waifu.im/search?included_tags={args}",
+        f"https://api.waifu.pics/sfw/{args}",
+        f"https://waifu.pics/api/{args}"
+    ]
+    api_url = random.choice(apis)
+    return await get_image_url(api_url)
 
 @loader.tds
-class KOTaiwaifuMod(loader.Module):
-    """Генератор аниме-вайфу (by @kotcheat)"""
+class KOTaiwaifu(loader.Module):
+    """Этот модуль позволяет вам легко получать изображения waifu из различных источников ( @kotcheat )"""
+
     strings = {"name": "KOTaiwaifu"}
 
+    strings_ru = {
+        "_cmd_doc_waf": "Любимая вайфу",
+        "_cls_doc": "Этот модуль позволяет вам легко получать изображения waifu из различных источников ( @kotcheat )",
+    }
+
     async def client_ready(self, client, db):
-        self._client = client
+        self.categories = ["maid", "waifu", "marin-kitagawa", "mori-calliope", "raiden-shogun", "oppai", "selfies", "uniform", "kamisato-ayaka", "neko"]
 
-    @loader.command(ru_doc="[теги] - Сгенерировать вайфу")
+    @loader.pm
     async def wafcmd(self, message: Message):
-        """Главная команда модуля"""
+        """Send anime pic"""
         args = utils.get_args_raw(message)
-        allowed_tags = [
-            "maid", "waifu", "marin-kitagawa",
-            "mori-calliope", "raiden-shogun",
-            "oppai", "selfies", "uniform", "kamisato-ayaka"
-        ]
-        
-        attempts = 0
-        while attempts < 2:  # Максимум 2 попытки
-            try:
-                tags = args.split(",") if args else random.sample(allowed_tags, 2)
-                tags = [tag.strip() for tag in tags if tag.strip() in allowed_tags][:2]
-
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(
-                        "https://api.waifu.im/search",
-                        params={"included_tags": tags}
-                    ) as resp:
-                        if resp.status != 200:
-                            continue  # Повторяем запрос
-                        data = await resp.json()
-
-                    image_url = data["images"][0]["url"]
-                    async with session.get(image_url) as img_resp:
-                        img_data = await img_resp.read()
-
-                # Проверка на пустые данные
-                if not img_data:
-                    continue
-
-                # Формируем файл с расширением
-                file = BytesIO(img_data)
-                file.name = "waifu.jpg"
-
-                # Отправка изображения
-                await self._client.send_file(
-                    message.peer_id,
-                    file,
-                    force_document=False,
-                    caption=(
-                        "<emoji document_id=5269260681269493579>😳</emoji><b> Ваша вайфу! </b>\n"
-                        f"<b><emoji document_id=5305455843846666416>😀</emoji> Теги:</b> {', '.join(tags)}"
-                    ),
-                    reply_to=message.id
-                )
-                await message.delete()
-                break  # Успешная отправка, выходим из цикла
-
-            except Exception:
-                attempts += 1
-                if attempts == 2:  # Не удалось после двух попыток
-                    await message.delete()  # Удаляем исходное сообщение
-                    return
-
-    @loader.command(ru_doc="Показать доступные теги") 
-    async def tagscmd(self, message: Message):
-        """Показывает доступные теги"""
-        tags = [
-            "maid", "waifu", "marin-kitagawa",
-            "mori-calliope", "raiden-shogun",
-            "oppai", "selfies", "uniform", "kamisato-ayaka"
-        ]
-        await utils.answer(
-            message,
-            "<emoji document_id=5258380816144154399>😀</emoji><b> Доступные теги: </b>\n"
-            f"{', '.join(tags)}"
+        args = "waifu" if args not in self.categories else args
+        pic = functools.partial(photo, self=self, args=args)
+        await self.inline.gallery(
+            message=message,
+            next_handler=pic,
+            caption=lambda: f"<i>{random.choice(phrases)}</i> {utils.ascii_face()}",
         )
-
-version = (1, 5, 0)
